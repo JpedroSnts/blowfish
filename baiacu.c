@@ -1,42 +1,29 @@
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
-#include <math.h>
 
-/////////////////////////////// FUNÇÕES AUXILIARES
-void hex_to_string(long long hex_value, char text[]) {
-    char hex[17];
-    sprintf(hex, "%llx", hex_value);
-
-    int len = strlen(hex);
-
-    for (int i = 0; i < len; i += 2) {
-        sscanf(&hex[i], "%2hhx", &text[i / 2]);
+void hex_to_string(char *hex, char *output) {
+    int length = strlen(hex);
+    for (int i = 0; i < length; i += 2) {
+        char byte[3] = { hex[i], hex[i+1], '\0' };
+        *output++ = (char) strtol(byte, NULL, 16);
     }
-    text[len / 2] = '\0';
+    *output = '\0';
 }
 
-long long str_to_hex(char texto[], int size) {
-    char txt_hex[size * 2 + 1];
-    int len = strlen(texto);
-
-    int i;
-    for(i = size; i > 0; i--) {
-        if (texto[i] == '\n') {
-            texto[i] = '\0';
-        }
+void str_to_hex(char *input, char *output) {
+    while (*input) {
+        sprintf(output, "%02x", (unsigned char) *input);
+        input++;
+        output += 2;
     }
-
-    for (i = 0; i < len - 1; i++) {
-        sprintf(txt_hex + i * 2, "%02X", texto[i]);
-    }
-
-    txt_hex[len * 2 - 2] = '\0';
-
-    return strtoull(txt_hex, NULL, 16);
+    printf("%s", output);
+    *output = '\0';
 }
-///////////////////////////////
 
+uint32_t P[18];
+uint32_t S[4][256];
 
 const int P_ORIG[18] = {
     0x243f6a88, 0x85a308d3, 0x13198a2e, 0x03707344, 0xa4093822,
@@ -180,129 +167,88 @@ const int S_ORIG[4][256] = {
         0x90d4f869, 0xa65cdea0, 0x3f09252d, 0xc208e69f, 0xb74e6132, 0xce77e25b, 0x578fdfe3, 0x3ac372e6 }
 };
 
-int P[16];
-int S[4][256];
-
-int F(int x) {
-    char a, b, c, d;
-
-    a = (x >> 24) & 0xFF;
-    b = (x >> 16) & 0xFF;
-    c = (x >> 8) & 0xFF;
-    d = x & 0xFF;
+uint32_t F(uint32_t x) {
+    uint8_t a = (x >> 24) & 0xFF;
+    uint8_t b = (x >> 16) & 0xFF;
+    uint8_t c = (x >> 8) & 0xFF;
+    uint8_t d = x & 0xFF;
 
     return ((S[0][a] + S[1][b]) ^ S[2][c]) + S[3][d];
 }
 
-long long encriptar(long long x) {
-    int l, r, i, temp;
-
-    r = (x & 0xFFFFFFFF);
-    l = (x >> 32);
-
-    for (i = 0; i < 16; i++) {
-        l = l ^ P[i];
-        r = F(l) ^ r;
-
-        temp = l;
-        l = r;
-        r = temp;
+void encrypt(uint32_t *L, uint32_t *R) {
+    for (int i = 0; i < 16; i++) {
+        *L ^= P[i];
+        *R ^= F(*L);
+        uint32_t temp = *L;
+        *L = *R;
+        *R = temp;
     }
-
-    temp = l;
-    l = r;
-    r = temp;
-
-    r = r ^ P[16];
-    l = l ^ P[17];
-
-    return ((long long)l << 32) | (unsigned int)r;
+    uint32_t temp = *L;
+    *L = *R;
+    *R = temp;
+    *R ^= P[16];
+    *L ^= P[16 + 1];
 }
 
-long long decriptar(long long x) {
-    int l, r, i, temp;
+void decrypt(uint32_t *L, uint32_t *R) {
+    for (int i = 16 + 1; i > 1; i--) {
+        *L ^= P[i];
+        *R ^= F(*L);
 
-    r = (x & 0xFFFFFFFF);
-    l = (x >> 32);
-
-    for (i = 17; i > 1; i--) {
-        l = l ^ P[i];
-        r = F(l) ^ r;
-
-        temp = l;
-        l = r;
-        r = temp;
+        uint32_t temp = *L;
+        *L = *R;
+        *R = temp;
     }
 
-    temp = l;
-    l = r;
-    r = temp;
-
-    r = r ^ P[1];
-    l = l ^ P[0];
-
-
-    //printf("%x %x\n", l, r);
-    return ((long long)l << 32) | (unsigned int)r;
+    uint32_t temp = *L;
+    *L = *R;
+    *R = temp;
+    *R ^= P[1];
+    *L ^= P[0];
 }
 
-void inicializar(char key[]) {
-    int i, j, k = 0;
+void initialize(const char *key) {
+    size_t key_length = strlen(key);
 
-    // incializacao das S-boxes
-    for(i = 0; i < 4; i++) {
-        for(j = 0; j < 256; j++) {
+    for (int i = 0; i < 18; i++) {
+        P[i] = P_ORIG[i];
+    }
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 256; j++) {
             S[i][j] = S_ORIG[i][j];
         }
     }
 
-    // divisão da chave em blocos de 32 bits
-    int len = (int)ceil(strlen(key) / 4.0);
-    int letras_hex[len];
-    for(i = 0; i < strlen(key); i += 4) {
-        char letras[5];
-        for (int j = 0; j < 4; j++) {
-            letras[j] = key[i + j];
+    for (int i = 0, j = 0; i < 18; i++) {
+        uint32_t data = 0;
+        for (int k = 0; k < 4; k++) {
+            data = (data << 8) | key[j];
+            j = (j + 1) % key_length;
         }
-        letras[4] = '\0';
-        letras_hex[k] = str_to_hex(letras, 5);
-        k++;
+        P[i] ^= data;
     }
 
-    // XOR das partes de 32-bits da chave com os 32-bits do P-Array
-    k = 0;
-    for(i = 0; i < 18; i++) {
-        P[i] = letras_hex[i] ^ P_ORIG[i];
-        if (k == len) k = 0;
-        k++;
+    uint32_t L = 0, R = 0;
+
+    for (int i = 0; i < 18; i += 2) {
+        encrypt(&L, &R);
+        P[i] = L;
+        P[i + 1] = R;
     }
 
-    long long zero = 0x0000000000000000;
-
-    for(i = 0; i < 18; i += 2) {
-        long long zero_cript = encriptar(zero);
-        int r = (zero_cript & 0xFFFFFFFF);
-        int l = (zero_cript >> 32);
-        P[i] = l;
-        P[i+1] = r;
-    }
-
-    for(i = 0; i < 4; i++) {
-        for(j = 0; j < 256; j += 2) {
-            long long zero_cript = encriptar(zero);
-            int r = (zero_cript & 0xFFFFFFFF);
-            int l = (zero_cript >> 32);
-            S[i][j] = l;
-            S[i][j+1] = r;
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 256; j += 2) {
+            encrypt(&L, &R);
+            S[i][j] = L;
+            S[i][j + 1] = R;
         }
     }
 }
 
 int main() {
-    char key[72] = "minha_chave";
-    //printf("Digite a chave: ");
-    //fgets(key, sizeof(key), stdin);
-    inicializar(&key);
+    char key[] = "MinhaChaveSecreta";
+    initialize(key);
 
     FILE *input;
     FILE *output;
@@ -320,7 +266,7 @@ int main() {
     char c;
     if (escolha == 1) {
         int i = 0;
-        char str[500];
+        char str[100000];
         do {
             c = fgetc(input);
             if (c != EOF) {
@@ -329,27 +275,33 @@ int main() {
             } else {
                 str[i] = '\0';
             }
-            /*if (c != EOF) {
-                char str[] = {c};
-                int decimalValue = str_to_hex(str, 17);
-                long long str_cript = encriptar(decimalValue);
-                fprintf(output, "%llx", str_cript);
-            }*/
         } while(c != EOF);
         i = 0;
         int j = 0;
         char str2[9];
-        while (str[i] != '\0') {
-            if (j == 8) {
-            } else {
-                str2[j] = str[i];
+        while (c != '\0') {
+            c = str[i];
+            if (c != '\0') {
+                str2[j] = c;
+                j++;
+            }
+            if (j == 8 || c == '\0') {
+                str2[j] = '\0';
+                j = 0;
+                if (str2[0] != NULL) {
+                    char hex_str[9];
+                    str_to_hex(str2, hex_str);
+                    long long number = strtoull(hex_str, NULL, 16);
+                    unsigned int l = (unsigned int)(number >> 32);
+                    unsigned int r = (unsigned int)(number & 0xFFFFFFFF);
+                    encrypt(&l, &r);
+                    fprintf(output, "%08x%08x", l, r);
+                }
             }
             i++;
-            j++;
         }
-        printf("%s", str2);
     } else {
-        char str[509];
+        char str[17];
         int i = 0;
         do {
             c = fgetc(input);
@@ -362,11 +314,16 @@ int main() {
                 i = 0;
 
                 if (str[0] != NULL) {
-                    long long hex_value = strtoull(str, NULL, 16);
-                    long long hex_decript = decriptar(hex_value);
-                    char str[17];
-                    hex_to_string(hex_decript, &str);
-                    printf("%s", str);
+                    long long number = strtoull(str, NULL, 16);
+                    unsigned int l = (unsigned int)(number >> 32);
+                    unsigned int r = (unsigned int)(number & 0xFFFFFFFF);
+                    decrypt(&l, &r);
+                    unsigned long long lr = ((unsigned long long)l << 32) | r;
+                    char hex_str[17];
+                    char str_conv[9];
+                    sprintf(hex_str, "%llx", lr);
+                    hex_to_string(hex_str, str_conv);
+                    fprintf(output, "%s", str_conv);
                 }
 
             }
