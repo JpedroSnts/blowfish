@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -22,17 +21,17 @@ void str_to_hex(char *input, char *output) {
     *output = '\0';
 }
 
-uint32_t P[18];
-uint32_t S[4][256];
+unsigned int P[18];
+unsigned int S[4][256];
 
-const int P_ORIG[18] = {
+const unsigned int P_ORIG[18] = {
     0x243f6a88, 0x85a308d3, 0x13198a2e, 0x03707344, 0xa4093822,
     0x299f31d0, 0x082efa98, 0xec4e6c89, 0x452821e6, 0x38d01377,
     0xbe5466cf, 0x34e90c6c, 0xc0ac29b7, 0xc97c50dd, 0x3f84d5b5,
     0xb5470917, 0x9216d5d9, 0x8979fb1b
 };
 
-const int S_ORIG[4][256] = {
+const unsigned int S_ORIG[4][256] = {
     {
         0xd1310ba6, 0x98dfb5ac, 0x2ffd72db, 0xd01adfb7, 0xb8e1afed, 0x6a267e96, 0xba7c9045, 0xf12c7f99,
         0x24a19947, 0xb3916cf7, 0x0801f2e2, 0x858efc16, 0x636920d8, 0x71574e69, 0xa458fea3, 0xf4933d7e,
@@ -167,79 +166,85 @@ const int S_ORIG[4][256] = {
         0x90d4f869, 0xa65cdea0, 0x3f09252d, 0xc208e69f, 0xb74e6132, 0xce77e25b, 0x578fdfe3, 0x3ac372e6 }
 };
 
-uint32_t F(uint32_t x) {
-    uint8_t a = (x >> 24) & 0xFF;
-    uint8_t b = (x >> 16) & 0xFF;
-    uint8_t c = (x >> 8) & 0xFF;
-    uint8_t d = x & 0xFF;
+unsigned int F(unsigned int x) {
+    unsigned char a = (x >> 24) & 0xFF;
+    unsigned char b = (x >> 16) & 0xFF;
+    unsigned char c = (x >> 8) & 0xFF;
+    unsigned char d = x & 0xFF;
 
     return ((S[0][a] + S[1][b]) ^ S[2][c]) + S[3][d];
 }
 
-void encrypt(uint32_t *L, uint32_t *R) {
-    for (int i = 0; i < 16; i++) {
+void criptografar(unsigned int *L, unsigned int *R) {
+    int i;
+    for (i = 0; i < 16; i++) {
         *L ^= P[i];
         *R ^= F(*L);
-        uint32_t temp = *L;
+
+        unsigned int temp = *L;
         *L = *R;
         *R = temp;
     }
-    uint32_t temp = *L;
+
+    unsigned int temp = *L;
     *L = *R;
     *R = temp;
     *R ^= P[16];
     *L ^= P[16 + 1];
 }
 
-void decrypt(uint32_t *L, uint32_t *R) {
-    for (int i = 16 + 1; i > 1; i--) {
+void descriptografar(unsigned int *L, unsigned int *R) {
+    int i;
+    for (i = 17; i > 1; i--) {
         *L ^= P[i];
         *R ^= F(*L);
 
-        uint32_t temp = *L;
+        unsigned int temp = *L;
         *L = *R;
         *R = temp;
     }
 
-    uint32_t temp = *L;
+    unsigned int temp = *L;
     *L = *R;
     *R = temp;
     *R ^= P[1];
     *L ^= P[0];
 }
 
-void initialize(const char *key) {
-    size_t key_length = strlen(key);
+void inicializar(const char *chave) {
+    size_t len_chave = strlen(chave);
+    int i, j, k;
 
-    for (int i = 0; i < 18; i++) {
+    for (i = 0; i < 18; i++) {
         P[i] = P_ORIG[i];
     }
-    for (int i = 0; i < 4; i++) {
-        for (int j = 0; j < 256; j++) {
+    for (i = 0; i < 4; i++) {
+        for (j = 0; j < 256; j++) {
             S[i][j] = S_ORIG[i][j];
         }
     }
 
-    for (int i = 0, j = 0; i < 18; i++) {
-        uint32_t data = 0;
-        for (int k = 0; k < 4; k++) {
-            data = (data << 8) | key[j];
-            j = (j + 1) % key_length;
+    j = 0;
+    for (i = 0; i < 18; i++) {
+        unsigned int zero = 0;
+        for (k = 0; k < 4; k++) {
+            zero = (zero << 8) | chave[j];
+            j = (j + 1) % len_chave;
         }
-        P[i] ^= data;
+        P[i] ^= zero;
     }
 
-    uint32_t L = 0, R = 0;
+    unsigned int L = 0, R = 0;
 
-    for (int i = 0; i < 18; i += 2) {
-        encrypt(&L, &R);
+    for (i = 0; i < 18; i += 2) {
+        criptografar(&L, &R);
         P[i] = L;
         P[i + 1] = R;
     }
 
-    for (int i = 0; i < 4; i++) {
-        for (int j = 0; j < 256; j += 2) {
-            encrypt(&L, &R);
+    for (i = 0; i < 4; i++) {
+        for (j = 0; j < 256; j += 2) {
+            criptografar(&L, &R);
             S[i][j] = L;
             S[i][j + 1] = R;
         }
@@ -247,8 +252,10 @@ void initialize(const char *key) {
 }
 
 int main() {
-    char key[] = "MinhaChaveSecreta";
-    initialize(key);
+    printf("Digite a chave: ");
+    char chave[73];
+    fgets(chave, sizeof(chave), stdin);
+    inicializar(chave);
 
     FILE *input;
     FILE *output;
@@ -260,7 +267,7 @@ int main() {
     }
 
     int escolha;
-    printf("Criptografar[1]\nDescriptogrfar[2]\n");
+    printf("\nCriptografar[1]\nDescriptogrfar[2]\n");
     scanf("%d", &escolha);
 
     char c;
@@ -294,7 +301,7 @@ int main() {
                     long long number = strtoull(hex_str, NULL, 16);
                     unsigned int l = (unsigned int)(number >> 32);
                     unsigned int r = (unsigned int)(number & 0xFFFFFFFF);
-                    encrypt(&l, &r);
+                    criptografar(&l, &r);
                     fprintf(output, "%08x%08x", l, r);
                 }
             }
@@ -317,7 +324,7 @@ int main() {
                     long long number = strtoull(str, NULL, 16);
                     unsigned int l = (unsigned int)(number >> 32);
                     unsigned int r = (unsigned int)(number & 0xFFFFFFFF);
-                    decrypt(&l, &r);
+                    descriptografar(&l, &r);
                     unsigned long long lr = ((unsigned long long)l << 32) | r;
                     char hex_str[17];
                     char str_conv[9];
